@@ -349,7 +349,14 @@ int spi_master_write(spi_t *obj, int value)
     struct spi_s *spiobj = SPI_S(obj);
     SPI_HandleTypeDef *handle = &(spiobj->handle);
 
-    size = (handle->Init.DataSize == SPI_DATASIZE_16BIT) ? 2 : 1;
+    // ISSUE #3445
+    // ERROR: The << size >> parameter in the ST HAL_SPI_TransmitReceive(..)
+    //        function does not represent the nr. of bytes but rather the
+    //        number of words (a word is 1 byte in 8-bit mode and 2 bytes in
+    //        16-bit mode).
+
+    //size = (handle->Init.DataSize == SPI_DATASIZE_16BIT) ? 2 : 1;
+    size = 1;
 
     /*  Use 10ms timeout */
     ret = HAL_SPI_TransmitReceive(handle,(uint8_t*)&value,(uint8_t*)&Rx,size,10);
