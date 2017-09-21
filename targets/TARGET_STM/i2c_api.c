@@ -31,7 +31,7 @@
 
 #include "mbed_assert.h"
 #include "i2c_api.h"
-#include "platform/wait_api.h"
+#include "platform/mbed_wait_api.h"
 
 #if DEVICE_I2C
 
@@ -238,6 +238,23 @@ void i2c_hw_reset(i2c_t *obj) {
 #endif
 }
 
+void i2c_sw_reset(i2c_t *obj)
+{
+    struct i2c_s *obj_s = I2C_S(obj);
+    I2C_HandleTypeDef *handle = &(obj_s->handle);
+    /*  SW reset procedure:
+     *  PE must be kept low during at least 3 APB clock cycles
+     *  in order to perform the software reset.
+     *  This is ensured by writing the following software sequence:
+     *  - Write PE=0
+     *  - Check PE=0
+     *  - Write PE=1.
+     */
+    handle->Instance->CR1 &=  ~I2C_CR1_PE;
+    while(handle->Instance->CR1 & I2C_CR1_PE);
+    handle->Instance->CR1 |=  I2C_CR1_PE;
+}
+
 void i2c_init(i2c_t *obj, PinName sda, PinName scl) {
 
     struct i2c_s *obj_s = I2C_S(obj);
@@ -259,8 +276,8 @@ void i2c_init(i2c_t *obj, PinName sda, PinName scl) {
         // Configure I2C pins
         pinmap_pinout(sda, PinMap_I2C_SDA);
         pinmap_pinout(scl, PinMap_I2C_SCL);
-        pin_mode(sda, PullUp);
-        pin_mode(scl, PullUp);
+        pin_mode(sda, OpenDrainPullUp);
+        pin_mode(scl, OpenDrainPullUp);
         obj_s->event_i2cIRQ = I2C1_EV_IRQn;
         obj_s->error_i2cIRQ = I2C1_ER_IRQn;
     }
@@ -273,8 +290,8 @@ void i2c_init(i2c_t *obj, PinName sda, PinName scl) {
         // Configure I2C pins
         pinmap_pinout(sda, PinMap_I2C_SDA);
         pinmap_pinout(scl, PinMap_I2C_SCL);
-        pin_mode(sda, PullUp);
-        pin_mode(scl, PullUp);
+        pin_mode(sda, OpenDrainPullUp);
+        pin_mode(scl, OpenDrainPullUp);
         obj_s->event_i2cIRQ = I2C2_EV_IRQn;
         obj_s->error_i2cIRQ = I2C2_ER_IRQn;
     }
@@ -287,8 +304,8 @@ void i2c_init(i2c_t *obj, PinName sda, PinName scl) {
         // Configure I2C pins
         pinmap_pinout(sda, PinMap_I2C_SDA);
         pinmap_pinout(scl, PinMap_I2C_SCL);
-        pin_mode(sda, PullUp);
-        pin_mode(scl, PullUp);
+        pin_mode(sda, OpenDrainPullUp);
+        pin_mode(scl, OpenDrainPullUp);
         obj_s->event_i2cIRQ = I2C3_EV_IRQn;
         obj_s->error_i2cIRQ = I2C3_ER_IRQn;
     }
@@ -301,8 +318,8 @@ void i2c_init(i2c_t *obj, PinName sda, PinName scl) {
         // Configure I2C pins
         pinmap_pinout(sda, PinMap_I2C_SDA);
         pinmap_pinout(scl, PinMap_I2C_SCL);
-        pin_mode(sda, PullUp);
-        pin_mode(scl, PullUp);
+        pin_mode(sda, OpenDrainPullUp);
+        pin_mode(scl, OpenDrainPullUp);
         obj_s->event_i2cIRQ = I2C4_EV_IRQn;
         obj_s->error_i2cIRQ = I2C4_ER_IRQn;
     }
@@ -315,8 +332,8 @@ void i2c_init(i2c_t *obj, PinName sda, PinName scl) {
         // Configure I2C pins
         pinmap_pinout(sda, PinMap_I2C_SDA);
         pinmap_pinout(scl, PinMap_I2C_SCL);
-        pin_mode(sda, PullUp);
-        pin_mode(scl, PullUp);
+        pin_mode(sda, OpenDrainPullUp);
+        pin_mode(scl, OpenDrainPullUp);
         obj_s->event_i2cIRQ = FMPI2C1_EV_IRQn;
         obj_s->error_i2cIRQ = FMPI2C1_ER_IRQn;
     }
@@ -419,9 +436,9 @@ void i2c_frequency(i2c_t *obj, int hz)
 
     // I2C configuration
     handle->Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;
-    handle->Init.DualAddressMode = I2C_DUALADDRESS_DISABLED;
-    handle->Init.GeneralCallMode = I2C_GENERALCALL_DISABLED;
-    handle->Init.NoStretchMode   = I2C_NOSTRETCH_DISABLED;
+    handle->Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+    handle->Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+    handle->Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;
     handle->Init.OwnAddress1     = 0;
     handle->Init.OwnAddress2     = 0;
     HAL_I2C_Init(handle);
@@ -492,14 +509,12 @@ int i2c_start(i2c_t *obj) {
 int i2c_stop(i2c_t *obj) {
     struct i2c_s *obj_s = I2C_S(obj);
     I2C_TypeDef *i2c = (I2C_TypeDef *)obj_s->i2c;
-    I2C_HandleTypeDef *handle = &(obj_s->handle);
-    int timeout;
 
     // Generate the STOP condition
     i2c->CR1 |= I2C_CR1_STOP;
 
     /*  In case of mixed usage of the APIs (unitary + SYNC)
-     *  re-inti HAL state
+     *  re-init HAL state
      */
     if(obj_s->XferOperation != I2C_FIRST_AND_LAST_FRAME)
             i2c_init(obj, obj_s->sda, obj_s->scl);
@@ -597,8 +612,14 @@ int i2c_stop(i2c_t *obj) {
      * to know when we need to prepare next start */
     handle->Instance->CR2 &=  ~I2C_CR2_SADD;
 
+    /*
+     * V2 IP is meant for automatic STOP, not user STOP
+     * SW reset the IP state machine before next transaction
+     */
+    i2c_sw_reset(obj);
+
     /*  In case of mixed usage of the APIs (unitary + SYNC)
-     *  re-inti HAL state */
+     *  re-init HAL state */
     if (obj_s->XferOperation != I2C_FIRST_AND_LAST_FRAME) {
         i2c_init(obj, obj_s->sda, obj_s->scl);
     }
@@ -627,10 +648,9 @@ int i2c_byte_read(i2c_t *obj, int last) {
         }
     }
 
-    /*  Enable reload mode as we don't know how many bytes will eb sent */
-    handle->Instance->CR2 |= I2C_CR2_RELOAD;
-    /*  Set transfer size to 1 */
-    handle->Instance->CR2 |= (I2C_CR2_NBYTES & (1 << 16));
+    /* Enable reload mode as we don't know how many bytes will be sent */
+    /* and set transfer size to 1 */
+    tmpreg |= I2C_CR2_RELOAD | (I2C_CR2_NBYTES & (1 << 16));
     /* Set the prepared configuration */
     handle->Instance->CR2 = tmpreg;
 
@@ -723,13 +743,6 @@ int i2c_read(i2c_t *obj, int address, char *data, int length, int stop) {
     int count = I2C_ERROR_BUS_BUSY, ret = 0;
     uint32_t timeout = 0;
 
-    if((length == 0) || (data == 0)) {
-        if(HAL_I2C_IsDeviceReady(handle, address, 1, 10) == HAL_OK)
-            return 0;
-        else
-            return I2C_ERROR_BUS_BUSY;
-    }
-
     if ((obj_s->XferOperation == I2C_FIRST_AND_LAST_FRAME) ||
         (obj_s->XferOperation == I2C_LAST_FRAME)) {
         if (stop)
@@ -781,13 +794,6 @@ int i2c_write(i2c_t *obj, int address, const char *data, int length, int stop) {
     I2C_HandleTypeDef *handle = &(obj_s->handle);
     int count = I2C_ERROR_BUS_BUSY, ret = 0;
     uint32_t timeout = 0;
-
-    if((length == 0) || (data == 0)) {
-        if(HAL_I2C_IsDeviceReady(handle, address, 1, 10) == HAL_OK)
-            return 0;
-        else
-            return I2C_ERROR_BUS_BUSY;
-    }
 
     if ((obj_s->XferOperation == I2C_FIRST_AND_LAST_FRAME) ||
         (obj_s->XferOperation == I2C_LAST_FRAME)) {
@@ -884,7 +890,10 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 
 #if DEVICE_I2CSLAVE
     /*  restore slave address */
-    i2c_slave_address(obj, 0, address, 0);
+    if (address != 0) {
+        obj_s->slave = 1;
+        i2c_slave_address(obj, 0, address, 0);
+    }
 #endif
 
     /* Keep Set event flag */

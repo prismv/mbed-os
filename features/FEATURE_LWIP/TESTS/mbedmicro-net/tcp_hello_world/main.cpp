@@ -1,3 +1,18 @@
+/* mbed Microcontroller Library
+ * Copyright (c) 2017 ARM Limited
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 #if !FEATURE_LWIP
     #error [NOT_SUPPORTED] LWIP not supported for this target
 #endif
@@ -11,10 +26,14 @@
 #include "TCPSocket.h"
 #include "greentea-client/test_env.h"
 #include "unity/unity.h"
+#include "utest.h"
+
+using namespace utest::v1;
+
 
 namespace {
     // Test connection information
-    const char *HTTP_SERVER_NAME = "developer.mbed.org";
+    const char *HTTP_SERVER_NAME = "os.mbed.com";
     const char *HTTP_SERVER_FILE_PATH = "/media/uploads/mbed_official/hello.txt";
     const int HTTP_SERVER_PORT = 80;
 #if defined(TARGET_VK_RZ_A1H)
@@ -35,9 +54,7 @@ bool find_substring(const char *first, const char *last, const char *s_first, co
     return (f != last);
 }
 
-int main() {
-    GREENTEA_SETUP(20, "default_auto");
-
+void test_tcp_hello_world() {
     bool result = false;
     EthernetInterface eth;
     //eth.init(); //Use DHCP
@@ -67,8 +84,8 @@ int main() {
         // Find "Hello World!" string in reply
         bool found_hello = find_substring(buffer, buffer + ret, HTTP_HELLO_STR, HTTP_HELLO_STR + strlen(HTTP_HELLO_STR));
 
-        TEST_ASSERT_TRUE(found_200_ok);
-        TEST_ASSERT_TRUE(found_hello);
+        TEST_ASSERT(found_200_ok);
+        TEST_ASSERT(found_hello);
 
         if (found_200_ok && found_hello) result = true;
 
@@ -83,5 +100,22 @@ int main() {
     }
 
     eth.disconnect();
-    GREENTEA_TESTSUITE_RESULT(result);
+    TEST_ASSERT(result);
+}
+
+
+// Test setup
+utest::v1::status_t test_setup(const size_t number_of_cases) {
+    GREENTEA_SETUP(120, "default_auto");
+    return verbose_test_setup_handler(number_of_cases);
+}
+
+Case cases[] = {
+    Case("TCP hello world", test_tcp_hello_world),
+};
+
+Specification specification(test_setup, cases);
+
+int main() {
+    return !Harness::run(specification);
 }

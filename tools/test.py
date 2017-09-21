@@ -28,9 +28,10 @@ sys.path.insert(0, ROOT)
 
 from tools.config import ConfigException
 from tools.test_api import test_path_to_name, find_tests, print_tests, build_tests, test_spec_from_test_builds
-from tools.options import get_default_options_parser, extract_profile
+from tools.options import get_default_options_parser, extract_profile, extract_mcus
 from tools.build_api import build_project, build_library
 from tools.build_api import print_build_memory_usage
+from tools.build_api import merge_build_data
 from tools.targets import TARGET_MAP
 from tools.utils import mkdir, ToolException, NotSupportedException, args_error
 from tools.test_exporters import ReportExporter, ResultExporterType
@@ -43,12 +44,12 @@ if __name__ == '__main__':
     try:
         # Parse Options
         parser = get_default_options_parser(add_app_config=True)
-        
+
         parser.add_argument("-D",
                           action="append",
                           dest="macros",
                           help="Add a macro definition")
-       
+
         parser.add_argument("-j", "--jobs",
                           type=int,
                           dest="jobs",
@@ -75,25 +76,35 @@ if __name__ == '__main__':
         parser.add_argument("-f", "--format", dest="format",
                             type=argparse_lowercase_type(format_choices, "format"),
                             default=format_default_choice, help=format_help)
-        
+
         parser.add_argument("--continue-on-build-fail", action="store_true", dest="continue_on_build_fail",
                           default=None, help="Continue trying to build all tests if a build failure occurs")
 
         #TODO validate the names instead of just passing through str
         parser.add_argument("-n", "--names", dest="names", type=argparse_many(str),
                           default=None, help="Limit the tests to a comma separated list of names")
-                          
+
         parser.add_argument("--test-spec", dest="test_spec",
                           default=None, help="Destination path for a test spec file that can be used by the Greentea automated test tool")
-        
+
         parser.add_argument("--build-report-junit", dest="build_report_junit",
                           default=None, help="Destination path for a build report in the JUnit xml format")
-        
+        parser.add_argument("--build-data",
+                            dest="build_data",
+                            default=None,
+                            help="Dump build_data to this file")
+
         parser.add_argument("-v", "--verbose",
                           action="store_true",
                           dest="verbose",
                           default=False,
                           help="Verbose diagnostic output")
+
+        parser.add_argument("--stats-depth",
+                            type=int,
+                            dest="stats_depth",
+                            default=2,
+                            help="Depth level for static memory report")
 
         options = parser.parse_args()
 
@@ -109,7 +120,7 @@ if __name__ == '__main__':
         # Target
         if options.mcu is None :
             args_error(parser, "argument -m/--mcu is required")
-        mcu = options.mcu[0]
+        mcu = extract_mcus(parser, options)[0]
 
         # Toolchain
         if options.tool is None:
@@ -124,7 +135,7 @@ if __name__ == '__main__':
 
         # Find all tests in the relevant paths
         for path in all_paths:
-            all_tests.update(find_tests(path, mcu, toolchain, 
+            all_tests.update(find_tests(path, mcu, toolchain,
                                         app_config=options.app_config))
 
         # Filter tests by name if specified
@@ -167,7 +178,7 @@ if __name__ == '__main__':
             # Default base source path is the current directory
             if not base_source_paths:
                 base_source_paths = ['.']
-            
+
             build_report = {}
             build_properties = {}
 
@@ -175,17 +186,13 @@ if __name__ == '__main__':
             profile = extract_profile(parser, options, toolchain)
             try:
                 # Build sources
-                build_library(base_source_paths, options.build_dir, mcu, toolchain,
-                                                jobs=options.jobs,
-                                                clean=options.clean,
-                                                report=build_report,
-                                                properties=build_properties,
-                                                name="mbed-build",
-                                                macros=options.macros,
-                                                verbose=options.verbose,
-                                                notify=notify,
-                                                archive=False,
-                                                app_config=options.app_config,
+                build_library(base_source_paths, options.build_dir, mcu,
+                              toolchain, jobs=options.jobs,
+                              clean=options.clean, report=build_report,
+                              properties=build_properties, name="mbed-build",
+                              macros=options.macros, verbose=options.verbose,
+                              notify=notify, archive=False,
+                              app_config=options.app_config,
                               build_profile=profile)
 
                 library_build_success = True
@@ -213,8 +220,9 @@ if __name__ == '__main__':
                         notify=notify,
                         jobs=options.jobs,
                         continue_on_build_fail=options.continue_on_build_fail,
-                                                             app_config=options.app_config,
-                                                             build_profile=profile)
+                        app_config=options.app_config,
+                        build_profile=profile,
+                        stats_depth=options.stats_depth)
 
                 # If a path to a test spec is provided, write it to a file
                 if options.test_spec:
@@ -245,6 +253,8 @@ if __name__ == '__main__':
 
             print_report_exporter = ReportExporter(ResultExporterType.PRINT, package="build")
             status = print_report_exporter.report(build_report)
+            if options.build_data:
+                merge_build_data(options.build_data, build_report, "test")
 
             if status:
                 sys.exit(0)

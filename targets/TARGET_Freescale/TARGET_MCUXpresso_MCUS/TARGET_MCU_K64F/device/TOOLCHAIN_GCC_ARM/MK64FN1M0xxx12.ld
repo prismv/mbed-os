@@ -53,9 +53,23 @@ ENTRY(Reset_Handler)
 
 __ram_vector_table__ = 1;
 
-/* Heap 1/4 of ram and stack 1/8 */
-__stack_size__ = 0x8000;
-__heap_size__ = 0x10000;
+/* With the RTOS in use, this does not affect the main stack size. The size of
+ * the stack where main runs is determined via the RTOS. */
+__stack_size__ = 0x400;
+
+/* This is the guaranteed minimum available heap size for an application. When
+ * uVisor is enabled, this is also the maximum available heap size. The
+ * HEAP_SIZE value is set by uVisor porters to balance the size of the legacy
+ * heap and the page heap in uVisor applications. */
+__heap_size__ = 0x6000;
+
+#if !defined(MBED_APP_START)
+  #define MBED_APP_START 0
+#endif
+
+#if !defined(MBED_APP_SIZE)
+  #define MBED_APP_SIZE 0x100000
+#endif
 
 HEAP_SIZE  = DEFINED(__heap_size__)  ? __heap_size__  : 0x0400;
 STACK_SIZE = DEFINED(__stack_size__) ? __stack_size__ : 0x0400;
@@ -64,9 +78,9 @@ M_VECTOR_RAM_SIZE = DEFINED(__ram_vector_table__) ? 0x0400 : 0x0;
 /* Specify the memory areas */
 MEMORY
 {
-  m_interrupts          (RX)  : ORIGIN = 0x00000000, LENGTH = 0x00000400
-  m_flash_config        (RX)  : ORIGIN = 0x00000400, LENGTH = 0x00000010
-  m_text                (RX)  : ORIGIN = 0x00000410, LENGTH = 0x000FFBF0
+  m_interrupts          (RX)  : ORIGIN = MBED_APP_START, LENGTH = 0x400
+  m_flash_config        (RX)  : ORIGIN = MBED_APP_START + 0x400, LENGTH = 0x10
+  m_text                (RX)  : ORIGIN = MBED_APP_START + 0x410, LENGTH = MBED_APP_SIZE - 0x410
   m_data                (RW)  : ORIGIN = 0x1FFF0000, LENGTH = 0x00010000
   m_data_2              (RW)  : ORIGIN = 0x20000000, LENGTH = 0x00030000
 }
@@ -93,9 +107,9 @@ SECTIONS
   /* The program code and other data goes into internal flash */
   /* Note: The uVisor expects this section at a fixed location, as specified by
    * the porting process configuration parameter: FLASH_OFFSET. */
-  __UVISOR_TEXT_OFFSET = 0x410;
-  __UVISOR_TEXT_START = ORIGIN(m_interrupts) + __UVISOR_TEXT_OFFSET;
-  .text __UVISOR_TEXT_START :
+  __UVISOR_FLASH_OFFSET = 0x410;
+  __UVISOR_FLASH_START = ORIGIN(m_interrupts) + __UVISOR_FLASH_OFFSET;
+  .text __UVISOR_FLASH_START :
   {
     /* uVisor code and data */
     . = ALIGN(4);
@@ -197,27 +211,26 @@ SECTIONS
     __interrupts_ram_end__ = .; /* Define a global symbol at data end */
   } > m_data
 
-  /* Ensure that the uVisor BSS section is put first after the relocated
-   * interrupt table in SRAM. */
-  /* Note: The uVisor expects this section at a fixed location, as specified by
-   * the porting process configuration parameter: SRAM_OFFSET. */
+  /* uVisor own memory and private box memories
+  /* If uVisor shares the SRAM with the OS/app, ensure that this section is
+   * the first one after the VTOR relocation section. */
+  /* Note: The uVisor expects this section at a fixed location, as specified
+           by the porting process configuration parameter: SRAM_OFFSET. */
   __UVISOR_SRAM_OFFSET = 0x400;
-  __UVISOR_BSS_START = ORIGIN(m_data) + __UVISOR_SRAM_OFFSET;
-  ASSERT(__interrupts_ram_end__ <= __UVISOR_BSS_START,
-         "The ISR relocation region overlaps with the uVisor BSS section.")
-  .uvisor.bss __UVISOR_BSS_START (NOLOAD):
+  __UVISOR_SRAM_START = ORIGIN(m_data) + __UVISOR_SRAM_OFFSET;
+  .uvisor.bss __UVISOR_SRAM_START (NOLOAD):
   {
     . = ALIGN(32);
     __uvisor_bss_start = .;
 
-    /* protected uvisor main bss */
+    /* Protected uVisor own BSS section */
     . = ALIGN(32);
     __uvisor_bss_main_start = .;
     KEEP(*(.keep.uvisor.bss.main))
     . = ALIGN(32);
     __uvisor_bss_main_end = .;
 
-    /* protected uvisor secure boxes bss */
+    /* Protected uVisor boxes' static memories */
     . = ALIGN(32);
     __uvisor_bss_boxes_start = .;
     KEEP(*(.keep.uvisor.bss.boxes))
@@ -228,7 +241,10 @@ SECTIONS
     __uvisor_bss_end = .;
   } > m_data
 
-  /* Heap space for the page allocator */
+  /* Heap space for the page allocator
+  /* If uVisor shares the SRAM with the OS/app, ensure that this section is
+   * the first one after the uVisor BSS section. Otherwise, ensure it is the
+   * first one after the VTOR relocation section. */
   .page_heap (NOLOAD) :
   {
     . = ALIGN(32);
@@ -305,6 +321,7 @@ SECTIONS
   } > m_data_2
 
   USB_RAM_GAP = DEFINED(__usb_ram_size__) ? __usb_ram_size__ : 0x800;
+
   /* Uninitialized data section */
   .bss :
   {
@@ -354,11 +371,13 @@ SECTIONS
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
 
-  ASSERT(__StackLimit >= __HeapLimit, "region m_data_2 overflowed with stack and heap")
+  ASSERT(__StackLimit >= __HeapLimit, "Region m_data_2 overflowed with stack and heap")
 
   /* Provide the physical memory boundaries for uVisor. */
   __uvisor_flash_start = ORIGIN(m_interrupts);
   __uvisor_flash_end = ORIGIN(m_text) + LENGTH(m_text);
   __uvisor_sram_start = ORIGIN(m_data);
   __uvisor_sram_end = ORIGIN(m_data_2) + LENGTH(m_data_2);
+  __uvisor_public_sram_start = __uvisor_sram_start;
+  __uvisor_public_sram_end = __uvisor_sram_end;
 }

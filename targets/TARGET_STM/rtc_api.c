@@ -32,6 +32,7 @@
 #include "rtc_api.h"
 #include "rtc_api_hal.h"
 #include "mbed_error.h"
+#include "mbed_mktime.h"
 
 static RTC_HandleTypeDef RtcHandle;
 
@@ -82,10 +83,8 @@ void rtc_init(void)
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
         error("PeriphClkInitStruct RTC failed with LSE\n");
     }
-
 #else /* !RTC_LSI */
-
-    __PWR_CLK_ENABLE();
+    __HAL_RCC_PWR_CLK_ENABLE();
 
     // Reset Backup domain
     __HAL_RCC_BACKUPRESET_FORCE();
@@ -108,7 +107,6 @@ void rtc_init(void)
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
         error("PeriphClkInitStruct RTC failed with LSI\n");
     }
-
 #endif /* !RTC_LSI */
 
     // Enable RTC
@@ -150,7 +148,7 @@ void rtc_free(void)
 {
 #if RTC_LSI
     // Enable Power clock
-    __PWR_CLK_ENABLE();
+    __HAL_RCC_PWR_CLK_ENABLE();
 
     // Enable access to Backup domain
     HAL_PWR_EnableBkUpAccess();
@@ -173,11 +171,23 @@ void rtc_free(void)
 }
 
 /*
- RTC Registers
-   RTC_WeekDay 1=monday, 2=tuesday, ..., 7=sunday
-   RTC_Month   1=january, 2=february, ..., 12=december
-   RTC_Date    day of the month 1-31
-   RTC_Year    year 0-99
+ ST RTC_DateTypeDef structure
+   WeekDay 1=monday, 2=tuesday, ..., 7=sunday
+   Month   0x1=january, 0x2=february, ..., 0x12=december
+   Date    day of the month 1-31
+   Year    year 0-99
+
+ ST RTC_TimeTypeDef structure
+  Hours           0-12 if the RTC_HourFormat_12 is selected during init
+                  0-23 if the RTC_HourFormat_24 is selected during init
+  Minutes         0-59
+  Seconds         0-59
+  TimeFormat      RTC_HOURFORMAT12_AM/RTC_HOURFORMAT12_PM
+  SubSeconds      time unit range between [0-1] Second with [1 Sec / SecondFraction +1] granularity
+  SecondFraction  range or granularity of Sub Second register content corresponding to Synchronous pre-scaler factor value (PREDIV_S)
+  DayLightSaving  RTC_DAYLIGHTSAVING_SUB1H/RTC_DAYLIGHTSAVING_ADD1H/RTC_DAYLIGHTSAVING_NONE
+  StoreOperation  RTC_STOREOPERATION_RESET/RTC_STOREOPERATION_SET
+
  struct tm
    tm_sec      seconds after the minute 0-61
    tm_min      minutes after the hour 0-59
@@ -189,6 +199,22 @@ void rtc_free(void)
    tm_yday     days since January 1 0-365
    tm_isdst    Daylight Saving Time flag
 */
+
+/*
+Information about STM32F0, STM32F2, STM32F3, STM32F4, STM32F7, STM32L0, STM32L1, STM32L4:
+BCD format is used to store the date in the RTC. The year is store on 2 * 4 bits.
+Because the first year is reserved to see if the RTC is init, the supposed range is 01-99.
+1st point is to cover the standard range from 1970 to 2038 (limited by the 32 bits of time_t).
+2nd point is to keep the year 1970 and the leap years synchronized.
+
+So by moving it 68 years forward from 1970, it become 1969-2067 which include 1970-2038.
+68 is also a multiple of 4 so it let the leap year synchronized.
+
+Information about STM32F1:
+32bit register is used (no BCD format) for the seconds and a software structure to store dates.
+It is then not a problem to not use shifts.
+*/
+
 time_t rtc_read(void)
 {
     RTC_DateTypeDef dateStruct;
@@ -199,11 +225,11 @@ time_t rtc_read(void)
 
     // Read actual date and time
     // Warning: the time must be read first!
-    HAL_RTC_GetTime(&RtcHandle, &timeStruct, FORMAT_BIN);
-    HAL_RTC_GetDate(&RtcHandle, &dateStruct, FORMAT_BIN);
+    HAL_RTC_GetTime(&RtcHandle, &timeStruct, RTC_FORMAT_BIN);
+    HAL_RTC_GetDate(&RtcHandle, &dateStruct, RTC_FORMAT_BIN);
 
     // Setup a tm structure based on the RTC
-    timeinfo.tm_wday = dateStruct.WeekDay;
+    /* tm_wday information is ignored by mktime */
     timeinfo.tm_mon  = dateStruct.Month - 1;
     timeinfo.tm_mday = dateStruct.Date;
     timeinfo.tm_year = dateStruct.Year + 68;
@@ -214,7 +240,7 @@ time_t rtc_read(void)
     timeinfo.tm_isdst  = -1;
 
     // Convert to timestamp
-    time_t t = mktime(&timeinfo);
+    time_t t = _rtc_mktime(&timeinfo);
 
     return t;
 }
@@ -227,16 +253,23 @@ void rtc_write(time_t t)
     RtcHandle.Instance = RTC;
 
     // Convert the time into a tm
-    struct tm *timeinfo = localtime(&t);
+    struct tm timeinfo;
+    if (_rtc_localtime(t, &timeinfo) == false) {
+        return;
+    }
 
     // Fill RTC structures
-    dateStruct.WeekDay        = timeinfo->tm_wday;
-    dateStruct.Month          = timeinfo->tm_mon + 1;
-    dateStruct.Date           = timeinfo->tm_mday;
-    dateStruct.Year           = timeinfo->tm_year - 68;
-    timeStruct.Hours          = timeinfo->tm_hour;
-    timeStruct.Minutes        = timeinfo->tm_min;
-    timeStruct.Seconds        = timeinfo->tm_sec;
+    if (timeinfo.tm_wday == 0) {
+        dateStruct.WeekDay    = 7;
+    } else {
+        dateStruct.WeekDay    = timeinfo.tm_wday;
+    }
+    dateStruct.Month          = timeinfo.tm_mon + 1;
+    dateStruct.Date           = timeinfo.tm_mday;
+    dateStruct.Year           = timeinfo.tm_year - 68;
+    timeStruct.Hours          = timeinfo.tm_hour;
+    timeStruct.Minutes        = timeinfo.tm_min;
+    timeStruct.Seconds        = timeinfo.tm_sec;
 
 #if !(TARGET_STM32F1)
     timeStruct.TimeFormat     = RTC_HOURFORMAT_24;
@@ -245,21 +278,17 @@ void rtc_write(time_t t)
 #endif /* TARGET_STM32F1 */
 
     // Change the RTC current date/time
-    HAL_RTC_SetDate(&RtcHandle, &dateStruct, FORMAT_BIN);
-    HAL_RTC_SetTime(&RtcHandle, &timeStruct, FORMAT_BIN);
+    HAL_RTC_SetDate(&RtcHandle, &dateStruct, RTC_FORMAT_BIN);
+    HAL_RTC_SetTime(&RtcHandle, &timeStruct, RTC_FORMAT_BIN);
 }
 
 int rtc_isenabled(void)
 {
-#if DEVICE_LOWPOWERTIMER
-    if ((RTC->ISR & RTC_ISR_INITS) ==  RTC_ISR_INITS) {
-        return 1;
-    } else {
-        return 0;
-    }
-#else /* DEVICE_LOWPOWERTIMER */
-    return 1;
-#endif /* DEVICE_LOWPOWERTIMER */
+#if !(TARGET_STM32F1)
+    return ( ((RTC->ISR & RTC_ISR_INITS) ==  RTC_ISR_INITS) && ((RTC->ISR & RTC_ISR_RSF) ==  RTC_ISR_RSF) );
+#else /* TARGET_STM32F1 */
+    return ((RTC->CRL & RTC_CRL_RSF) ==  RTC_CRL_RSF);
+#endif /* TARGET_STM32F1 */
 }
 
 #if DEVICE_LOWPOWERTIMER
@@ -307,6 +336,5 @@ void rtc_synchronize(void)
     HAL_RTC_WaitForSynchro(&RtcHandle);
 }
 #endif /* DEVICE_LOWPOWERTIMER */
-
 
 #endif /* DEVICE_RTC */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016 ARM Limited. All Rights Reserved.
+ * Copyright (c) 2015-2017 ARM Limited. All Rights Reserved.
  */
 
 #include <string.h>
@@ -32,7 +32,7 @@ typedef struct internal_socket_s {
     int16_t data_len;
     uint8_t *data;
 
-    int8_t socket;
+    int8_t socket;  //positive value = socket id, negative value virtual socket id
     bool real_socket;
     uint8_t usage_counter;
     bool is_secure;
@@ -42,9 +42,18 @@ typedef struct internal_socket_s {
     ns_list_link_t link;
 } internal_socket_t;
 
+const uint8_t COAP_MULTICAST_ADDR_LINK_LOCAL[16] = { 0xff, 0x02, [15] = 0xfd }; // ff02::fd, COAP link-local multicast (rfc7390)
+const uint8_t COAP_MULTICAST_ADDR_ADMIN_LOCAL[16] = { 0xff, 0x03, [15] = 0xfd }; // ff02::fd, COAP admin-local multicast (rfc7390)
+const uint8_t COAP_MULTICAST_ADDR_SITE_LOCAL[16] = { 0xff, 0x05, [15] = 0xfd }; // ff05::fd, COAP site-local multicast (rfc7390)
+
 static NS_LIST_DEFINE(socket_list, internal_socket_t, link);
 
 static void timer_cb(void* param);
+
+static void recv_sckt_msg(void *cb_res);
+#ifdef COAP_SECURITY_AVAILABLE
+static void secure_recv_sckt_msg(void *cb_res);
+#endif
 
 #define TIMER_STATE_CANCELLED -1 /* cancelled */
 #define TIMER_STATE_NO_EXPIRY 0 /* none of the delays is expired */
@@ -92,6 +101,16 @@ static secure_session_t *secure_session_find_by_timer_id(int8_t timer_id)
     return this;
 }
 
+static bool is_secure_session_valid(secure_session_t *session)
+{
+    ns_list_foreach(secure_session_t, cur_ptr, &secure_session_list) {
+        if (cur_ptr == session) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void secure_session_delete(secure_session_t *this)
 {
     if (this) {
@@ -109,6 +128,17 @@ static void secure_session_delete(secure_session_t *this)
     }
 
     return;
+}
+
+static int8_t virtual_socket_id_allocate()
+{
+    int8_t new_virtual_socket_id = -1; // must not overlap with real socket id's
+    ns_list_foreach(internal_socket_t, cur_ptr, &socket_list) {
+        if (cur_ptr->socket <= new_virtual_socket_id) {
+            new_virtual_socket_id = cur_ptr->socket - 1;
+        }
+    }
+    return new_virtual_socket_id;
 }
 
 static secure_session_t *secure_session_create(internal_socket_t *parent, const uint8_t *address_ptr, uint16_t port)
@@ -195,14 +225,32 @@ static secure_session_t *secure_session_find(internal_socket_t *parent, const ui
     return this;
 }
 
+static void coap_multicast_group_join_or_leave(int8_t socket_id, uint8_t opt_name, int8_t interface_id)
+{
+    ns_ipv6_mreq_t ns_ipv6_mreq;
+    int8_t ret_val;
 
+    // Join or leave COAP multicast groups
+    ns_ipv6_mreq.ipv6mr_interface = interface_id;
 
-static void recv_sckt_msg(void *cb_res);
-static void secure_recv_sckt_msg(void *cb_res);
+    memcpy(ns_ipv6_mreq.ipv6mr_multiaddr, COAP_MULTICAST_ADDR_LINK_LOCAL, 16);
+    ret_val = socket_setsockopt(socket_id, SOCKET_IPPROTO_IPV6, opt_name, &ns_ipv6_mreq, sizeof(ns_ipv6_mreq));
 
-static internal_socket_t *int_socket_create(uint16_t listen_port, bool use_ephemeral_port, bool is_secure, bool real_socket, bool bypassSec)
+    memcpy(ns_ipv6_mreq.ipv6mr_multiaddr, COAP_MULTICAST_ADDR_ADMIN_LOCAL, 16);
+    ret_val |= socket_setsockopt(socket_id, SOCKET_IPPROTO_IPV6, opt_name, &ns_ipv6_mreq, sizeof(ns_ipv6_mreq));
+
+    memcpy(ns_ipv6_mreq.ipv6mr_multiaddr, COAP_MULTICAST_ADDR_SITE_LOCAL, 16);
+    ret_val |= socket_setsockopt(socket_id, SOCKET_IPPROTO_IPV6, opt_name, &ns_ipv6_mreq, sizeof(ns_ipv6_mreq));
+
+    if (ret_val) {
+        tr_error("Multicast group access failed, err=%d, name=%d", ret_val, opt_name);
+    }
+}
+
+static internal_socket_t *int_socket_create(uint16_t listen_port, bool use_ephemeral_port, bool is_secure, bool real_socket, bool bypassSec, int8_t socket_interface_selection, bool multicast_registration)
 {
     internal_socket_t *this = ns_dyn_mem_alloc(sizeof(internal_socket_t));
+
     if (!this) {
         return NULL;
     }
@@ -244,9 +292,16 @@ static internal_socket_t *int_socket_create(uint16_t listen_port, bool use_ephem
 
         // Set socket option to receive packet info
         socket_setsockopt(this->socket, SOCKET_IPPROTO_IPV6, SOCKET_IPV6_RECVPKTINFO, &(const bool) {1}, sizeof(bool));
+        if (socket_interface_selection > 0) {
+            // Interface selection requested as socket_interface_selection set
+            socket_setsockopt(this->socket, SOCKET_IPPROTO_IPV6, SOCKET_INTERFACE_SELECT, &socket_interface_selection, sizeof(socket_interface_selection));
+        }
 
-    }else{
-        this->socket = -1;
+        if (multicast_registration) {
+            coap_multicast_group_join_or_leave(this->socket, SOCKET_IPV6_JOIN_GROUP, socket_interface_selection);
+        }
+    } else {
+        this->socket = virtual_socket_id_allocate();
     }
 
     ns_list_add_to_start(&socket_list, this);
@@ -300,16 +355,18 @@ static internal_socket_t *int_socket_find(uint16_t port, bool is_secure, bool is
     return this;
 }
 
-static int8_t send_to_real_socket(int8_t socket_id, const ns_address_t *address, const uint8_t source_address[static 16], const void *buffer, uint16_t length)
+static int send_to_real_socket(int8_t socket_id, const ns_address_t *address, const uint8_t source_address[static 16], const void *buffer, uint16_t length)
 {
-    ns_iovec_t msg_iov;
-    ns_msghdr_t msghdr;
-
-    msghdr.msg_name = (void*)address;
-    msghdr.msg_namelen = sizeof(ns_address_t);
-    msghdr.msg_iov = &msg_iov;
-    msghdr.msg_iovlen = 1;
-    msghdr.flags = 0;
+    ns_iovec_t msg_iov = {
+        .iov_base = (void *) buffer,
+        .iov_len = length
+    };
+    ns_msghdr_t msghdr = {
+        .msg_name = (void *) address,
+        .msg_namelen = sizeof(ns_address_t),
+        .msg_iov = &msg_iov,
+        .msg_iovlen = 1
+    };
 
     if (memcmp(source_address, ns_in6addr_any, 16)) {
         uint8_t ancillary_databuffer[NS_CMSG_SPACE(sizeof(ns_in6_pktinfo_t))];
@@ -328,13 +385,7 @@ static int8_t send_to_real_socket(int8_t socket_id, const ns_address_t *address,
         pktinfo = (ns_in6_pktinfo_t*)NS_CMSG_DATA(cmsg);
         pktinfo->ipi6_ifindex = 0;
         memcpy(pktinfo->ipi6_addr, source_address, 16);
-    } else {
-        msghdr.msg_control = NULL;
-        msghdr.msg_controllen = 0;
     }
-
-    msg_iov.iov_base = (void *)buffer;
-    msg_iov.iov_len = length;
 
     return socket_sendmsg(socket_id, &msghdr, 0);
 }
@@ -364,7 +415,7 @@ static int secure_session_sendto(int8_t socket_id, void *handle, const void *buf
     //For some reason socket_sendto returns 0 in success, while other socket impls return number of bytes sent!!!
     //TODO: check if address_ptr is valid and use that instead if it is
 
-    int8_t ret = send_to_real_socket(sock->socket, &session->remote_host, session->local_address, buf, len);
+    int ret = send_to_real_socket(sock->socket, &session->remote_host, session->local_address, buf, len);
     if (ret < 0) {
         return ret;
     }
@@ -395,7 +446,8 @@ static int secure_session_recvfrom(int8_t socket_id, unsigned char *buf, size_t 
 static void timer_cb(void *param)
 {
     secure_session_t *sec = param;
-    if( sec ){
+
+    if( sec && is_secure_session_valid(sec)){
         if(sec->timer.fin_ms > sec->timer.int_ms){
             /* Intermediate expiry */
             sec->timer.fin_ms -= sec->timer.int_ms;
@@ -483,7 +535,6 @@ static int read_data(socket_callback_t *sckt_data, internal_socket_t *sock, ns_a
         msghdr.msg_iovlen = 1;
         msghdr.msg_control = ancillary_databuffer;
         msghdr.msg_controllen = sizeof(ancillary_databuffer);
-        msghdr.flags = 0;
 
         msg_iov.iov_base = sock->data;
         msg_iov.iov_len = sckt_data->d_len;
@@ -511,6 +562,8 @@ static int read_data(socket_callback_t *sckt_data, internal_socket_t *sock, ns_a
         } else {
             goto return_failure;
         }
+    } else {
+        goto return_failure;
     }
 
     return 0;
@@ -524,6 +577,7 @@ return_failure:
 
 }
 
+#ifdef COAP_SECURITY_AVAILABLE
 static void secure_recv_sckt_msg(void *cb_res)
 {
     socket_callback_t *sckt_data = cb_res;
@@ -606,6 +660,7 @@ static void secure_recv_sckt_msg(void *cb_res)
         }
     }
 }
+#endif
 
 static void recv_sckt_msg(void *cb_res)
 {
@@ -751,9 +806,13 @@ coap_conn_handler_t *connection_handler_create(receive_from_socket_cb *recv_from
 
     return handler;
 }
-void connection_handler_destroy(coap_conn_handler_t *handler)
+
+void connection_handler_destroy(coap_conn_handler_t *handler, bool multicast_group_leave)
 {
     if(handler){
+        if (multicast_group_leave) {
+            coap_multicast_group_join_or_leave(handler->socket->socket, SOCKET_IPV6_LEAVE_GROUP, handler->socket_interface_selection);
+        }
        int_socket_delete(handler->socket);
        ns_dyn_mem_free(handler);
     }
@@ -788,7 +847,7 @@ int coap_connection_handler_open_connection(coap_conn_handler_t *handler, uint16
 
     internal_socket_t *current = !use_ephemeral_port?int_socket_find(listen_port, is_secure, is_real_socket, bypassSec):NULL;
     if (!current) {
-        handler->socket = int_socket_create(listen_port, use_ephemeral_port, is_secure, is_real_socket, bypassSec);
+        handler->socket = int_socket_create(listen_port, use_ephemeral_port, is_secure, is_real_socket, bypassSec, handler->socket_interface_selection, handler->registered_to_multicast);
         if (!handler->socket) {
             return -1;
         }

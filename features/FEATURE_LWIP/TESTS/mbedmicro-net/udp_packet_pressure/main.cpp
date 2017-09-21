@@ -1,3 +1,18 @@
+/* mbed Microcontroller Library
+ * Copyright (c) 2017 ARM Limited
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 #if !FEATURE_LWIP
     #error [NOT_SUPPORTED] LWIP not supported for this target
 #endif
@@ -13,6 +28,9 @@
 #include "UDPSocket.h"
 #include "greentea-client/test_env.h"
 #include "unity/unity.h"
+#include "utest.h"
+
+using namespace utest::v1;
 
 
 #ifndef MBED_CFG_UDP_CLIENT_PACKET_PRESSURE_MIN
@@ -110,8 +128,7 @@ void generate_buffer(uint8_t **buffer, size_t *size, size_t min, size_t max) {
     TEST_ASSERT(buffer);
 }
 
-int main() {
-    GREENTEA_SETUP(60, "udp_echo");
+void test_udp_packet_pressure() {
     generate_buffer(&buffer, &buffer_size,
         MBED_CFG_UDP_CLIENT_PACKET_PRESSURE_MIN,
         MBED_CFG_UDP_CLIENT_PACKET_PRESSURE_MAX);
@@ -125,8 +142,6 @@ int main() {
     printf("MBED: UDPClient waiting for server IP and port...\n");
 
     greentea_send_kv("target_ip", eth.get_ip_address());
-
-    bool result = true;
 
     char recv_key[] = "host_port";
     char ipbuf[60] = {0};
@@ -242,9 +257,25 @@ int main() {
     timer.stop();
     printf("MBED: Time taken: %fs\r\n", timer.read());
     printf("MBED: Speed: %.3fkb/s\r\n",
-            8*(2*MBED_CFG_UDP_CLIENT_PACKET_PRESSURE_MAX - 
+            8*(2*MBED_CFG_UDP_CLIENT_PACKET_PRESSURE_MAX -
             MBED_CFG_UDP_CLIENT_PACKET_PRESSURE_MIN) / (1000*timer.read()));
 
     eth.disconnect();
-    GREENTEA_TESTSUITE_RESULT(result);
+}
+
+
+// Test setup
+utest::v1::status_t test_setup(const size_t number_of_cases) {
+    GREENTEA_SETUP(120, "udp_echo");
+    return verbose_test_setup_handler(number_of_cases);
+}
+
+Case cases[] = {
+    Case("UDP packet pressure", test_udp_packet_pressure),
+};
+
+Specification specification(test_setup, cases);
+
+int main() {
+    return !Harness::run(specification);
 }

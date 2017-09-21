@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015 ARM Limited. All rights reserved.
+ * Copyright (c) 2010-2016 ARM Limited. All rights reserved.
  *
  * SPDX-License-Identifier: LicenseRef-PBL
  *
@@ -37,7 +37,7 @@ typedef enum address_type_t {
  */
 typedef struct ns_address {
     address_type_t type;          /**< Address type. */
-    uint8_t address[16];          /**< Addresss. */
+    uint8_t address[16];          /**< Address. */
     uint16_t identifier;          /**< TCP/UDP port number. */
 } ns_address_t;
 

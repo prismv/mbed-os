@@ -1,3 +1,18 @@
+/* mbed Microcontroller Library
+ * Copyright (c) 2017 ARM Limited
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 #if !FEATURE_LWIP
     #error [NOT_SUPPORTED] LWIP not supported for this target
 #endif
@@ -51,13 +66,13 @@ void test_bring_up_down() {
 
 // Test setup
 utest::v1::status_t test_setup(const size_t number_of_cases) {
-    GREENTEA_SETUP(60, "default_auto");
+    GREENTEA_SETUP(120, "default_auto");
     return verbose_test_setup_handler(number_of_cases);
 }
 
 Case cases[] = {
-    Case("Testing bringing the network up and down", test_bring_up_down<1>),
-    Case("Testing bringing the network up and down twice", test_bring_up_down<2>),
+    Case("Bringing the network up and down", test_bring_up_down<1>),
+    Case("Bringing the network up and down twice", test_bring_up_down<2>),
 };
 
 Specification specification(test_setup, cases);

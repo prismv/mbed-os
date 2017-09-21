@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015 ARM Limited. All rights reserved.
+ * Copyright (c) 2011-2017 ARM Limited. All rights reserved.
  *
  * SPDX-License-Identifier: LicenseRef-PBL
  *
@@ -43,6 +43,15 @@ typedef struct whiteboard_entry_t {
  * \return A pointer to whiteboard_entry_t structure.
  */
 extern whiteboard_entry_t *whiteboard_get(whiteboard_entry_t *cur);
+
+/**
+ * @brief Whiteboard_set_device_hard_limit Sets the absolut limit of child devices this device can handle.
+ *        This is very useful in situations, where 1 GW drops from network and causes it's children
+ *        to join other GW networks. This might cause other GWs to run out of memory.
+ * @param limit Absolute maximum amount of devices allowed to join. Default value=0 means unlimited (as long as there is memory)
+ */
+extern void whiteboard_set_device_hard_limit(uint16_t limit);
+
 #ifdef __cplusplus
 }
 #endif

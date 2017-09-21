@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2015 ARM Limited. All Rights Reserved.
+ * Copyright (c) 2011-2017 ARM Limited. All Rights Reserved.
  */
 
 /**
@@ -12,7 +12,6 @@
  */
 
 #include "ns_types.h"
-#include "sn_nsdl.h"
 #include "sn_coap_protocol.h"
 #include "sn_coap_parser_stub.h"
 

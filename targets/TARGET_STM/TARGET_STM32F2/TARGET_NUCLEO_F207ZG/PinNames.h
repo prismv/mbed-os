@@ -31,60 +31,36 @@
 #define MBED_PINNAMES_H
 
 #include "cmsis.h"
+#include "PinNamesTypes.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define STM_PIN_DATA(MODE, PUPD, AFNUM)  ((int)(((MODE  & 0x0F) << 0) |\
-                                                ((PUPD  & 0x07) << 4) |\
-                                                ((AFNUM & 0x0F) << 7)))
-
-#define STM_PIN_DATA_EXT(MODE, PUPD, AFNUM, CHANNEL, INVERTED)  ((int)(((MODE     & 0x0F) <<  0) |\
-                                                                       ((PUPD     & 0x07) <<  4) |\
-                                                                       ((AFNUM    & 0x0F) <<  7) |\
-                                                                       ((CHANNEL  & 0x1F) << 11) |\
-                                                                       ((INVERTED & 0x01) << 16)))
-
-#define STM_PIN_MODE(X)     (((X) >>  0) & 0x0F)
-#define STM_PIN_PUPD(X)     (((X) >>  4) & 0x07)
-#define STM_PIN_AFNUM(X)    (((X) >>  7) & 0x0F)
-#define STM_PIN_CHANNEL(X)  (((X) >> 11) & 0x1F)
-#define STM_PIN_INVERTED(X) (((X) >> 16) & 0x01)
-
-#define STM_MODE_INPUT              (0)
-#define STM_MODE_OUTPUT_PP          (1)
-#define STM_MODE_OUTPUT_OD          (2)
-#define STM_MODE_AF_PP              (3)
-#define STM_MODE_AF_OD              (4)
-#define STM_MODE_ANALOG             (5)
-#define STM_MODE_IT_RISING          (6)
-#define STM_MODE_IT_FALLING         (7)
-#define STM_MODE_IT_RISING_FALLING  (8)
-#define STM_MODE_EVT_RISING         (9)
-#define STM_MODE_EVT_FALLING        (10)
-#define STM_MODE_EVT_RISING_FALLING (11)
-#define STM_MODE_IT_EVT_RESET       (12)
-
-// High nibble = port number (0=A, 1=B, 2=C, 3=D, 4=E, 5=F, 6=G, 7=H)
-// Low nibble  = pin number
-#define STM_PORT(X) (((uint32_t)(X) >> 4) & 0xF)
-#define STM_PIN(X)  ((uint32_t)(X) & 0xF)
-
 typedef enum {
-    PIN_INPUT,
-    PIN_OUTPUT
-} PinDirection;
+    ALT0  = 0x100,
+    ALT1  = 0x200,
+    ALT2  = 0x300,
+    ALT3  = 0x400,
 
-typedef enum {
     PA_0  = 0x00,
+    PA_0_ALT0  = 0x00|ALT0,
+    PA_0_ALT1  = 0x00|ALT1,
     PA_1  = 0x01,
     PA_2  = 0x02,
     PA_3  = 0x03,
+    PA_3_ALT0  = 0x03|ALT0,
+    PA_3_ALT1  = 0x03|ALT1,
     PA_4  = 0x04,
+    PA_4_ALT0  = 0x04|ALT0,
     PA_5  = 0x05,
+    PA_5_ALT0  = 0x05|ALT0,
     PA_6  = 0x06,
+    PA_6_ALT0  = 0x06|ALT0,
     PA_7  = 0x07,
+    PA_7_ALT0  = 0x07|ALT0,
+    PA_7_ALT1  = 0x07|ALT1,
+    PA_7_ALT2  = 0x07|ALT2,
     PA_8  = 0x08,
     PA_9  = 0x09,
     PA_10 = 0x0A,
@@ -93,34 +69,57 @@ typedef enum {
     PA_13 = 0x0D,
     PA_14 = 0x0E,
     PA_15 = 0x0F,
+    PA_15_ALT0 = 0x0F|ALT0,
 
     PB_0  = 0x10,
+    PB_0_ALT0  = 0x10|ALT0,
+    PB_0_ALT1  = 0x10|ALT1,
+    PB_0_ALT2  = 0x10|ALT2,
     PB_1  = 0x11,
+    PB_1_ALT0  = 0x11|ALT0,
+    PB_1_ALT1  = 0x11|ALT1,
     PB_2  = 0x12,
     PB_3  = 0x13,
+    PB_3_ALT0  = 0x13|ALT0,
     PB_4  = 0x14,
+    PB_4_ALT0  = 0x14|ALT0,
     PB_5  = 0x15,
+    PB_5_ALT0  = 0x15|ALT0,
     PB_6  = 0x16,
     PB_7  = 0x17,
     PB_8  = 0x18,
+    PB_8_ALT0  = 0x18|ALT0,
     PB_9  = 0x19,
+    PB_9_ALT0  = 0x19|ALT0,
     PB_10 = 0x1A,
     PB_11 = 0x1B,
     PB_12 = 0x1C,
     PB_13 = 0x1D,
     PB_14 = 0x1E,
     PB_15 = 0x1F,
+    PB_15_ALT0 = 0x1F|ALT0,
+    PB_15_ALT1 = 0x1F|ALT1,
 
     PC_0  = 0x20,
+    PC_0_ALT0  = 0x20|ALT0,
+    PC_0_ALT1  = 0x20|ALT1,
     PC_1  = 0x21,
     PC_2  = 0x22,
+    PC_2_ALT0  = 0x22|ALT0,
+    PC_2_ALT1  = 0x22|ALT1,
     PC_3  = 0x23,
+    PC_3_ALT0  = 0x23|ALT0,
+    PC_3_ALT1  = 0x23|ALT1,
     PC_4  = 0x24,
     PC_5  = 0x25,
     PC_6  = 0x26,
+    PC_6_ALT0  = 0x26|ALT0,
     PC_7  = 0x27,
+    PC_7_ALT0  = 0x27|ALT0,
     PC_8  = 0x28,
+    PC_8_ALT0  = 0x28|ALT0,
     PC_9  = 0x29,
+    PC_9_ALT0  = 0x29|ALT0,
     PC_10 = 0x2A,
     PC_11 = 0x2B,
     PC_12 = 0x2C,
@@ -222,7 +221,7 @@ typedef enum {
     D8          = PF_12,
     D9          = PD_15,
     D10         = PD_14,
-    D11         = PA_7,
+    D11         = STM32_D11_SPI_ETHERNET_PIN, /* config in targets.json file */
     D12         = PA_6,
     D13         = PA_5,
     D14         = PB_9,
@@ -234,6 +233,8 @@ typedef enum {
     LED3        = PB_14,
     LED4        = LED1,
     USER_BUTTON = PC_13,
+    // Standardized button names
+    BUTTON1 = USER_BUTTON,
     SERIAL_TX   = PD_8,
     SERIAL_RX   = PD_9,
     USBTX       = SERIAL_TX,
@@ -246,6 +247,30 @@ typedef enum {
     SPI_CS      = D10,
     PWM_OUT     = D9,
 
+    //USB pins
+    USB_OTG_HS_ULPI_D0 = PA_3,
+    USB_OTG_HS_SOF = PA_4,
+    USB_OTG_HS_ULPI_CK = PA_5,
+    USB_OTG_FS_SOF = PA_8,
+    USB_OTG_FS_VBUS = PA_9,
+    USB_OTG_FS_ID = PA_10,
+    USB_OTG_FS_DM = PA_11,
+    USB_OTG_FS_DP = PA_12,
+    USB_OTG_HS_ULPI_D1 = PB_0,
+    USB_OTG_HS_ULPI_D2 = PB_1,
+    USB_OTG_HS_ULPI_D7 = PB_5,
+    USB_OTG_HS_ULPI_D3 = PB_10,
+    USB_OTG_HS_ULPI_D4 = PB_11,
+    USB_OTG_HS_ID = PB_12,
+    USB_OTG_HS_ULPI_D5 = PB_12,
+    USB_OTG_HS_ULPI_D6 = PB_13,
+    USB_OTG_HS_VBUS = PB_13,
+    USB_OTG_HS_DM = PB_14,
+    USB_OTG_HS_DP = PB_15,
+    USB_OTG_HS_ULPI_STP = PC_0,
+    USB_OTG_HS_ULPI_DIR = PC_2,
+    USB_OTG_HS_ULPI_NXT = PC_3,
+
     // Not connected
     NC = (int)0xFFFFFFFF
 } PinName;
@@ -253,14 +278,6 @@ typedef enum {
 #define STDIO_UART_TX  SERIAL_TX
 #define STDIO_UART_RX  SERIAL_RX
 #define STDIO_UART     UART_3
-
-typedef enum {
-    PullNone  = 0,
-    PullUp    = 1,
-    PullDown  = 2,
-    OpenDrain = 3,
-    PullDefault = PullNone
-} PinMode;
 
 #ifdef __cplusplus
 }
